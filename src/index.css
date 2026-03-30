@@ -35,3 +35,120 @@ button {
 * {
   box-sizing: border-box;
 }
+
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-pop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.94);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes card-deal-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(120px, -110px, 0) rotate(-14deg) scale(0.82);
+    filter: blur(8px);
+  }
+  55% {
+    opacity: 1;
+    transform: translate3d(-6px, 8px, 0) rotate(3deg) scale(1.03);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes card-back-pulse {
+  0%,
+  100% {
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.42);
+  }
+  50% {
+    box-shadow: 0 24px 54px rgba(16, 185, 129, 0.28);
+  }
+}
+
+@keyframes item-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[class*="absolute inset-0 z-20 flex items-center justify-center"],
+[class*="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"] {
+  animation: overlay-fade-in 220ms ease-out;
+}
+
+[class*="absolute inset-0 z-20 flex items-center justify-center"] > div,
+[class*="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"] > div {
+  animation: modal-pop-in 360ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  transform-origin: center;
+}
+
+[class*="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"] [class*="space-y-3 overflow-auto p-6"] > div,
+[class*="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"] [class*="space-y-4 overflow-auto p-6"] > button {
+  animation: item-rise-in 300ms ease-out both;
+}
+
+[style*="animation-delay"] {
+  animation: card-deal-in 560ms cubic-bezier(0.18, 0.88, 0.24, 1) both;
+}
+
+[class*="relative flex h-28 w-20 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-zinc-950"] {
+  animation-name: card-deal-in, card-back-pulse;
+  animation-duration: 560ms, 2400ms;
+  animation-delay: var(--deal-delay, 0s), calc(var(--deal-delay, 0s) + 620ms);
+  animation-timing-function: cubic-bezier(0.18, 0.88, 0.24, 1), ease-in-out;
+  animation-fill-mode: both, both;
+  animation-iteration-count: 1, infinite;
+}
+
+[class*="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white"] {
+  position: relative;
+  overflow: hidden;
+}
+
+[class*="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white"]::after {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  background: linear-gradient(120deg, transparent 35%, rgba(255, 255, 255, 0.42) 48%, transparent 61%);
+  transform: translateX(-120%) rotate(12deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+[class*="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white"]:hover::after {
+  opacity: 1;
+  transform: translateX(120%) rotate(12deg);
+  transition: transform 420ms ease, opacity 180ms ease;
+}
+
+[class*="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white"]:hover {
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
