@@ -18,25 +18,37 @@ const SHUFFLE_AT = 15;
 const DECK_COUNT = 1;
 const INITIAL_MESSAGE = '칩을 눌러 베팅을 쌓은 뒤 새 라운드를 시작하세요.';
 const INITIAL_STATS: SessionStats = {rounds: 0, wins: 0, losses: 0, pushes: 0, blackjacks: 0};
-const DEFAULT_SETTINGS: UISettings = {showBasicStrategy: true, bankruptcyAlert: true, confirmEarlyExit: true};
+const DEFAULT_SETTINGS: UISettings = {showBasicStrategy: false, bankruptcyAlert: true, confirmEarlyExit: true};
 
 export default function App() {
   const [showStatsView, setShowStatsView] = useState(false);
   const [showHistoryView, setShowHistoryView] = useState(false);
   const [showSettingsView, setShowSettingsView] = useState(false);
+  const [showRoundOverOverlay, setShowRoundOverOverlay] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [settings, setSettings] = useState<UISettings>(DEFAULT_SETTINGS);
   const lastLoggedRoundRef = useRef(0);
   const [table, setTable] = useState<TableState>({shoe: createShuffledDeck(DECK_COUNT), dealerCards: [], playerHands: [], activeHandIndex: 0, phase: 'betting', message: INITIAL_MESSAGE, stats: INITIAL_STATS, roundNumber: 1, bankroll: STARTING_BANKROLL, pendingBet: 0});
 
   useEffect(() => {
-    if (settings.bankruptcyAlert && table.bankroll === 0 && table.phase === 'round-over') {
+    if (table.phase !== 'round-over') {
+      setShowRoundOverOverlay(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setShowRoundOverOverlay(true);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [table.phase, table.roundNumber]);
+
+  useEffect(() => {
+    if (settings.bankruptcyAlert && table.bankroll === 0 && table.phase === 'round-over' && showRoundOverOverlay) {
       const timer = window.setTimeout(() => {
         window.alert('파산! 한강으로 떠나요');
       }, 150);
       return () => window.clearTimeout(timer);
     }
-  }, [settings.bankruptcyAlert, table.bankroll, table.phase]);
+  }, [settings.bankruptcyAlert, showRoundOverOverlay, table.bankroll, table.phase]);
 
   const dealerRevealed = table.dealerCards.length > 0 && dealerShouldReveal(table.dealerCards, table.phase === 'betting' ? 'round-over' : table.phase);
   const activeHand = table.playerHands[table.activeHandIndex] ?? null;
@@ -108,7 +120,7 @@ export default function App() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.35)_100%)] opacity-90" />
             <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_22%,transparent_75%,rgba(0,0,0,0.25))]" />
             <div className="relative flex min-h-[34rem] flex-col justify-between gap-8 rounded-[1.6rem] border border-white/8 px-4 py-8 sm:px-8">
-              {table.phase === 'round-over' ? <RoundOver table={table} onReplay={table.bankroll > 0 ? () => { setShowStatsView(false); setTable((current) => prepareNextRound(current)); } : undefined} onStats={() => setShowStatsView(true)} /> : null}
+              {table.phase === 'round-over' && showRoundOverOverlay ? <RoundOver table={table} onReplay={table.bankroll > 0 ? () => { setShowStatsView(false); setTable((current) => prepareNextRound(current)); } : undefined} onStats={() => setShowStatsView(true)} /> : null}
               <div className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 text-center opacity-20 md:block"><p className="text-5xl font-black uppercase tracking-[0.16em] text-white">Blackjack</p><p className="mt-3 text-xs font-bold uppercase tracking-[0.6em] text-white/80">Pays 3 To 2</p><div className="mx-auto mt-5 h-px w-56 bg-white/40" /><p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.4em] text-white/80">Dealer stands on all 17s</p></div>
               <div className="relative z-10 flex flex-col items-center gap-4">
                 <Badge icon={<History className="h-3 w-3" />} label="딜러" value={table.dealerCards.length === 0 ? '-' : dealerRevealed && dealerSummary ? String(dealerSummary.total) : `${rankLabel(table.dealerCards[0])}+?`} tone="slate" />
@@ -136,7 +148,7 @@ export default function App() {
             <ActionButton label="스플릿" sub={activeHand && canSplit(activeHand, table.phase, table.playerHands.length) && table.bankroll >= activeHand.bet ? '가능' : '불가'} onClick={() => setTable((current) => splitCurrentHand(current))} disabled={!activeHand || !canSplit(activeHand, table.phase, table.playerHands.length) || table.bankroll < activeHand.bet} />
           </div>
 
-          <button type="button" onClick={() => { if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료할까요? 진행 중 베팅은 환불됩니다.')) return; const ended = endSessionEarly(table); pushHistory(setHistoryEntries, ended, currentRoundNumber, 0); setShowStatsView(false); setTable(ended); }} disabled={table.phase === 'round-over'} className={`self-center rounded-2xl px-8 py-3 text-sm font-black tracking-[0.24em] transition ${table.phase !== 'round-over' ? 'border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20' : 'cursor-not-allowed bg-white/10 text-zinc-500'}`}>조기 종료하기</button>
+          <button type="button" onClick={() => { if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 진행 중 베팅은 환불되고 1라운드부터 다시 시작합니다.')) return; setShowStatsView(false); setHistoryEntries([]); setTable((current) => endSessionEarly(current)); }} disabled={table.phase === 'round-over'} className={`self-center rounded-2xl px-8 py-3 text-sm font-black tracking-[0.24em] transition ${table.phase !== 'round-over' ? 'border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20' : 'cursor-not-allowed bg-white/10 text-zinc-500'}`}>조기 종료하기</button>
           <button type="button" onClick={() => setTable((current) => startRound(current))} disabled={table.phase !== 'betting' || table.pendingBet === 0} className={`self-center rounded-2xl px-12 py-4 text-sm font-black uppercase tracking-[0.35em] transition active:scale-[0.98] ${table.phase === 'betting' && table.pendingBet > 0 ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'cursor-not-allowed bg-white/10 text-zinc-500'}`}>새 라운드</button>
         </section>
 
@@ -216,18 +228,18 @@ function settleRound(table: TableState): TableState {
 
 function prepareNextRound(table: TableState): TableState { return table.phase !== 'round-over' || table.bankroll <= 0 ? table : {...table, dealerCards: [], playerHands: [], activeHandIndex: 0, phase: 'betting', message: INITIAL_MESSAGE}; }
 function endSessionEarly(table: TableState): TableState {
-  if (table.phase === 'round-over') return table;
-  const liveBet = table.playerHands.reduce((sum, hand) => sum + hand.bet, 0);
-  const refunded = table.pendingBet + liveBet;
+  const refunded = table.pendingBet + table.playerHands.reduce((sum, hand) => sum + hand.bet, 0);
   return {
-    ...table,
+    shoe: createShuffledDeck(DECK_COUNT),
     dealerCards: [],
     playerHands: [],
     activeHandIndex: 0,
-    bankroll: table.bankroll + refunded,
+    roundNumber: 1,
+    bankroll: STARTING_BANKROLL,
     pendingBet: 0,
-    phase: 'round-over',
-    message: refunded > 0 ? `조기 종료로 ${money(refunded)} 이 환불되었습니다.` : '플레이어가 조기 종료를 선택했습니다. 현재까지의 통계를 확인하세요.',
+    phase: 'betting',
+    stats: INITIAL_STATS,
+    message: refunded > 0 ? `조기 종료 후 ${money(refunded)} 환불 처리하고 새 게임을 시작합니다.` : '조기 종료 후 새 게임을 시작합니다.',
   };
 }
 function payoutOf(hand: Hand): number { if (hand.result === 'push') return hand.bet; if (hand.result === 'win') return hand.bet * 2; if (hand.result === 'blackjack') return hand.bet * 2.5; return 0; }
