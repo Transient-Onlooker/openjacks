@@ -184,6 +184,7 @@ export default function App() {
       if (event.code === 'KeyF') {
         event.preventDefault();
         if (table.phase === 'round-over') {
+          if (!showRoundOverOverlay) return;
           setShowStatsView(false);
           setTable((current) => current.bankroll > 0 ? prepareNextRound(current) : restartSessionAfterBust());
           return;
@@ -194,7 +195,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeydown);
     return () => window.removeEventListener('keydown', handleKeydown);
-  }, [showHistoryView, showSettingsView, showStatsView, table.phase]);
+  }, [showHistoryView, showRoundOverOverlay, showSettingsView, showStatsView, table.phase]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#153725_0%,_#08110c_45%,_#040706_100%)] text-zinc-100">
