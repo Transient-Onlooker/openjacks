@@ -22,8 +22,11 @@ export default function App() {
   const [table, setTable] = useState<TableState>({shoe: createShuffledDeck(DECK_COUNT), dealerCards: [], playerHands: [], activeHandIndex: 0, phase: 'betting', message: INITIAL_MESSAGE, stats: INITIAL_STATS, roundNumber: 1, bankroll: STARTING_BANKROLL, pendingBet: 0});
 
   useEffect(() => {
-    if (table.bankroll === 0 && (table.phase === 'betting' || table.phase === 'round-over')) {
-      window.alert('파산! 한강으로 떠나요');
+    if (table.bankroll === 0 && table.phase === 'round-over') {
+      const timer = window.setTimeout(() => {
+        window.alert('파산! 한강으로 떠나요');
+      }, 150);
+      return () => window.clearTimeout(timer);
     }
   }, [table.bankroll, table.phase]);
 
@@ -36,10 +39,40 @@ export default function App() {
   const played = table.stats.wins + table.stats.losses + table.stats.pushes;
   const winRate = played === 0 ? 0 : table.stats.wins / played;
   const liveBet = table.playerHands.reduce((sum, hand) => sum + hand.bet, 0);
+  const currentRoundNumber = Math.max(table.roundNumber - (table.phase === 'round-over' ? 1 : 0), 1);
+  const roundResults = table.playerHands.reduce(
+    (acc, hand) => {
+      if (hand.result === 'win') acc.wins += 1;
+      if (hand.result === 'lose') acc.losses += 1;
+      if (hand.result === 'push') acc.pushes += 1;
+      if (hand.result === 'blackjack') acc.blackjacks += 1;
+      return acc;
+    },
+    {wins: 0, losses: 0, pushes: 0, blackjacks: 0},
+  );
+  const roundPayout = table.phase === 'round-over' ? table.playerHands.reduce((sum, hand) => sum + payoutOf(hand), 0) : 0;
+  const roundWager = table.playerHands.reduce((sum, hand) => sum + hand.bet, 0);
+  const roundNet = table.phase === 'round-over' ? roundPayout - roundWager : 0;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#153725_0%,_#08110c_45%,_#040706_100%)] text-zinc-100">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(120deg,rgba(16,185,129,0.08),transparent_35%,rgba(250,204,21,0.05)_70%,transparent)]" />
+      {showStatsView ? (
+        <StatsOverlay
+          roundNumber={currentRoundNumber}
+          message={table.message}
+          bankroll={table.bankroll}
+          dealerTotal={dealerSummary?.total ?? null}
+          roundWager={roundWager}
+          roundPayout={roundPayout}
+          roundNet={roundNet}
+          roundResults={roundResults}
+          stats={table.stats}
+          winRate={winRate}
+          hands={table.playerHands}
+          onClose={() => setShowStatsView(false)}
+        />
+      ) : null}
       <header className="sticky top-0 z-50 border-b border-white/10 bg-black/30 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
           <div className="flex items-center gap-3">
@@ -164,10 +197,26 @@ function settleRound(table: TableState): TableState {
 }
 
 function prepareNextRound(table: TableState): TableState { return table.phase !== 'round-over' ? table : {...table, dealerCards: [], playerHands: [], activeHandIndex: 0, phase: 'betting', message: INITIAL_MESSAGE}; }
-function endSessionEarly(table: TableState): TableState { return table.phase === 'round-over' ? table : {...table, dealerCards: [], playerHands: [], activeHandIndex: 0, pendingBet: 0, phase: 'round-over', message: '플레이어가 조기 종료를 선택했습니다. 현재까지의 통계를 확인하세요.'}; }
+function endSessionEarly(table: TableState): TableState {
+  if (table.phase === 'round-over') return table;
+  const liveBet = table.playerHands.reduce((sum, hand) => sum + hand.bet, 0);
+  const refunded = table.pendingBet + liveBet;
+  return {
+    ...table,
+    dealerCards: [],
+    playerHands: [],
+    activeHandIndex: 0,
+    bankroll: table.bankroll + refunded,
+    pendingBet: 0,
+    phase: 'round-over',
+    message: refunded > 0 ? `조기 종료로 ${money(refunded)} 이 환불되었습니다.` : '플레이어가 조기 종료를 선택했습니다. 현재까지의 통계를 확인하세요.',
+  };
+}
 function payoutOf(hand: Hand): number { if (hand.result === 'push') return hand.bet; if (hand.result === 'win') return hand.bet * 2; if (hand.result === 'blackjack') return hand.bet * 2.5; return 0; }
+function roundHeadline(hands: Hand[]): string { const results = hands.map((hand) => hand.result).filter(Boolean); if (results.length === 0) return '결과 확인'; if (results.every((result) => result === 'push')) return '무승부'; if (results.every((result) => result === 'lose')) return '패배'; if (results.every((result) => result === 'win' || result === 'blackjack')) return '승리'; return '결과 확인'; }
 function roundSummary(hands: Hand[], dealerTotal: number): string { return `딜러 최종 합은 ${dealerTotal}입니다. ${hands.map((hand, index) => `손패 ${index + 1}: ${formatResult(hand.result)}`).join(' / ')}.`; }
 function money(value: number): string { return `${value.toLocaleString()}원`; }
+function signedMoney(value: number): string { return `${value >= 0 ? '+' : '-'}${Math.abs(value).toLocaleString()}원`; }
 function percent(value: number): string { return `${(value * 100).toFixed(1)}%`; }
 function signed(value: number, digits = 0): string { return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`; }
 function actionLabel(action: 'Hit' | 'Stand' | 'Double' | 'Split'): string { if (action === 'Hit') return '히트'; if (action === 'Stand') return '스탠드'; if (action === 'Double') return '더블'; return '스플릿'; }
@@ -175,8 +224,12 @@ function rankLabel(card?: Card): string { return card ? `${card.rank}${suitLabel
 function suitLabel(suit: Card['suit']): string { if (suit === 'spades') return '스페이드'; if (suit === 'hearts') return '하트'; if (suit === 'diamonds') return '다이아'; return '클로버'; }
 function suitIcon(suit: Card['suit']): string { if (suit === 'spades') return spadeIcon; if (suit === 'hearts') return heartIcon; if (suit === 'diamonds') return diamondIcon; return clubIcon; }
 
-function RoundOver({table, onReplay, onStats}: {table: TableState; onReplay: () => void; onStats: () => void}) { return <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[1.6rem] bg-black/55 p-6 backdrop-blur-sm"><div className="w-full max-w-md rounded-[1.6rem] border border-white/10 bg-[#08110c]/95 p-6 text-center shadow-2xl"><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">라운드 종료</p><p className="mt-3 text-2xl font-black text-white">이번 판이 끝났습니다</p><p className="mt-3 text-sm leading-6 text-zinc-300">{table.message}</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" onClick={onReplay} className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black tracking-[0.18em] text-black transition hover:bg-emerald-400">다시 하기</button><button type="button" onClick={onStats} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">통계 보기</button></div></div></div>; }
+function RoundOver({table, onReplay, onStats}: {table: TableState; onReplay: () => void; onStats: () => void}) { const headline = roundHeadline(table.playerHands); return <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[1.6rem] bg-black/55 p-6 backdrop-blur-sm"><div className="w-full max-w-md rounded-[1.6rem] border border-white/10 bg-[#08110c]/95 p-6 text-center shadow-2xl"><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">{headline}</p><p className="mt-3 text-2xl font-black text-white">{headline} 결과입니다</p><p className="mt-3 text-sm leading-6 text-zinc-300">{table.message}</p><div className="mt-6 grid gap-3 sm:grid-cols-2"><button type="button" onClick={onReplay} className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black tracking-[0.18em] text-black transition hover:bg-emerald-400">다시 하기</button><button type="button" onClick={onStats} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">통계 보기</button></div></div></div>; }
+function StatsOverlay({roundNumber, message, bankroll, dealerTotal, roundWager, roundPayout, roundNet, roundResults, stats, winRate, hands, onClose}: {roundNumber: number; message: string; bankroll: number; dealerTotal: number | null; roundWager: number; roundPayout: number; roundNet: number; roundResults: {wins: number; losses: number; pushes: number; blackjacks: number}; stats: SessionStats; winRate: number; hands: Hand[]; onClose: () => void}) { return <div className="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"><div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#07110d]/95 shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 px-6 py-4"><div><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">통계 보기</p><h2 className="mt-1 text-2xl font-black text-white">라운드 #{roundNumber} 결과 분석</h2></div><button type="button" onClick={onClose} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">닫기</button></div><div className="grid flex-1 gap-6 overflow-auto p-6 lg:grid-cols-[1.35fr_0.95fr]"><section className="space-y-6"><div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-zinc-500">요약</p><p className="mt-3 text-sm leading-7 text-zinc-200">{message}</p><div className="mt-5 grid gap-3 sm:grid-cols-4"><SummaryTile label="딜러 합계" value={dealerTotal === null ? '-' : String(dealerTotal)} color="text-white" /><SummaryTile label="총 베팅" value={money(roundWager)} color="text-amber-300" /><SummaryTile label="정산 금액" value={money(roundPayout)} color="text-emerald-300" /><SummaryTile label="순손익" value={signedMoney(roundNet)} color={roundNet >= 0 ? 'text-emerald-300' : 'text-rose-300'} /></div></div><div className="grid gap-4 md:grid-cols-2">{hands.map((hand, index) => <div key={hand.id} className="rounded-[1.5rem] border border-white/10 bg-black/20 p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">손패 {index + 1}</p><p className="mt-2 text-xl font-black text-white">{summarizeHand(hand.cards).total}</p></div><div className="text-right"><p className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">결과</p><p className="mt-2 text-base font-black text-white">{formatResult(hand.result)}</p></div></div><div className="mt-4 grid gap-2 text-sm text-zinc-300"><InlineStat label="베팅" value={money(hand.bet)} /><InlineStat label="카드 수" value={String(hand.cards.length)} /><InlineStat label="상태" value={`${hand.busted ? '버스트 ' : ''}${hand.blackjack ? '블랙잭 ' : ''}${hand.doubled ? '더블 ' : ''}${hand.isSplitAces ? 'A 분할' : ''}`.trim() || '일반'} /></div></div>)}</div></section><aside className="space-y-6"><div className="rounded-[1.5rem] border border-emerald-400/20 bg-emerald-500/8 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-emerald-300">라운드 결과 분포</p><div className="mt-4 space-y-3"><ProgressRow label="승리" count={roundResults.wins} color="bg-emerald-400" total={Math.max(hands.length, 1)} /><ProgressRow label="패배" count={roundResults.losses} color="bg-rose-400" total={Math.max(hands.length, 1)} /><ProgressRow label="무승부" count={roundResults.pushes} color="bg-zinc-300" total={Math.max(hands.length, 1)} /><ProgressRow label="블랙잭" count={roundResults.blackjacks} color="bg-amber-300" total={Math.max(hands.length, 1)} /></div></div><div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-zinc-500">세션 누적</p><div className="mt-4 space-y-3"><InlineStat label="총 라운드" value={String(stats.rounds)} /><InlineStat label="총 승리" value={String(stats.wins)} /><InlineStat label="총 패배" value={String(stats.losses)} /><InlineStat label="총 무승부" value={String(stats.pushes)} /><InlineStat label="총 블랙잭" value={String(stats.blackjacks)} /><InlineStat label="승률" value={percent(winRate)} /><InlineStat label="현재 보유금" value={money(bankroll)} /></div></div><div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-zinc-500">해석 포인트</p><ul className="mt-4 space-y-3 text-sm leading-6 text-zinc-300"><li>이번 판의 총 베팅과 정산 금액 차이로 기대값 개념을 바로 볼 수 있습니다.</li><li>승패 분포와 세션 승률을 비교하면 표본 수가 늘수록 결과가 어떻게 안정되는지 관찰할 수 있습니다.</li><li>블랙잭과 일반 승리의 배당 차이도 함께 비교할 수 있습니다.</li></ul></div></aside></div></div></div>; }
 function HandPanel({hand, index, active, multi}: {key?: string; hand: Hand; index: number; active: boolean; multi: boolean}) { const summary = summarizeHand(hand.cards); return <div className={`rounded-[1.4rem] border p-4 ${active ? 'border-emerald-400/30 bg-black/20' : 'border-white/8 bg-black/10'}`}><div className="mb-3 flex items-center justify-between gap-3"><Badge icon={<User className="h-3 w-3" />} label={multi ? `손패 ${index + 1}` : '플레이어'} value={String(summary.total)} tone="emerald" /><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-500">베팅 {money(hand.bet)}</p><p className="mt-1 text-[11px] font-bold uppercase tracking-[0.25em] text-zinc-400">{formatResult(hand.result)}</p></div></div><div className="flex flex-wrap gap-3">{hand.cards.map((card, cardIndex) => <TableCard key={card.id} card={card} delay={0.12 + cardIndex * 0.08} />)}</div><div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-zinc-400">{active ? <Chip label="현재 턴" active /> : null}{hand.doubled ? <Chip label="더블" /> : null}{hand.blackjack ? <Chip label="블랙잭" /> : null}{hand.busted ? <Chip label="버스트" /> : null}{hand.isSplitAces ? <Chip label="A 분할" /> : null}</div></div>; }
+function SummaryTile({label, value, color}: {label: string; value: string; color: string}) { return <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.28em] text-zinc-500">{label}</p><p className={`mt-2 text-lg font-black ${color}`}>{value}</p></div>; }
+function InlineStat({label, value}: {label: string; value: string}) { return <div className="flex items-center justify-between gap-3"><span className="text-zinc-500">{label}</span><span className="font-mono text-white">{value}</span></div>; }
+function ProgressRow({label, count, total, color}: {label: string; count: number; total: number; color: string}) { const width = `${Math.min((count / total) * 100, 100)}%`; return <div><div className="mb-1 flex items-center justify-between text-sm"><span className="text-zinc-300">{label}</span><span className="font-mono text-white">{count}</span></div><div className="h-2 rounded-full bg-white/10"><div className={`h-2 rounded-full ${color}`} style={{width}} /></div></div>; }
 function Metric({label, value, accent}: {label: string; value: string; accent: string}) { return <div className="text-right"><p className="text-[10px] uppercase tracking-[0.3em] text-zinc-500">{label}</p><p className={`mt-1 font-mono text-sm font-bold ${accent}`}>{value}</p></div>; }
 function IconButton({icon}: {icon: ReactNode}) { return <button className="rounded-full border border-white/8 bg-white/5 p-2 text-zinc-300 transition hover:bg-white/10 hover:text-white">{icon}</button>; }
 function Badge({icon, label, value, tone}: {icon: ReactNode; label: string; value: string; tone: 'slate' | 'emerald'}) { const toneClass = tone === 'emerald' ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' : 'border-white/10 bg-black/30 text-zinc-300'; return <div className={`flex items-center gap-2 rounded-full border px-3 py-1.5 backdrop-blur ${toneClass}`}>{icon}<span className="text-[10px] font-bold uppercase tracking-[0.28em]">{label}</span><span className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-[10px] text-white">{value}</span></div>; }
