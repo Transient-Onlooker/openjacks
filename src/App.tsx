@@ -125,6 +125,12 @@ export default function App() {
       const target = event.target;
       if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
 
+      if (event.code === 'Escape') {
+        event.preventDefault();
+        setTable((current) => resetPendingBet(current));
+        return;
+      }
+
       if (event.code === 'Digit1') {
         event.preventDefault();
         setTable((current) => addChip(current, 1));
@@ -239,7 +245,7 @@ export default function App() {
                 compact
                 onAddChip={(chip) => setTable((current) => addChip(current, chip))}
                 onAllIn={() => setTable((current) => allInBet(current))}
-                onResetBet={() => setTable((current) => ({...current, pendingBet: 0, pendingChips: []}))}
+                onResetBet={() => setTable((current) => resetPendingBet(current))}
                 onRemovePendingChip={(chipIndex) => setTable((current) => removePendingChip(current, chipIndex))}
                 onEarlyExit={() => {
                   if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 올려둔 칩은 정리되고 1라운드부터 다시 시작합니다.')) return;
@@ -276,7 +282,7 @@ export default function App() {
                 compact={false}
                 onAddChip={(chip) => setTable((current) => addChip(current, chip))}
                 onAllIn={() => setTable((current) => allInBet(current))}
-                onResetBet={() => setTable((current) => ({...current, pendingBet: 0, pendingChips: []}))}
+                onResetBet={() => setTable((current) => resetPendingBet(current))}
                 onRemovePendingChip={(chipIndex) => setTable((current) => removePendingChip(current, chipIndex))}
                 onEarlyExit={() => {
                   if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 올려둔 칩은 정리되고 1라운드부터 다시 시작합니다.')) return;
@@ -316,6 +322,10 @@ function allInBet(table: TableState): TableState {
   const pendingBet = table.bankroll;
   const pendingChips = chipBreakdown(pendingBet);
   return {...table, pendingBet, pendingChips, message: `${money(pendingBet)} 올인 베팅을 올렸습니다.`};
+}
+function resetPendingBet(table: TableState): TableState {
+  if (table.phase !== 'betting' || table.pendingChips.length === 0) return table;
+  return {...table, pendingBet: 0, pendingChips: [], message: '올린 칩을 모두 회수했습니다.'};
 }
 function removePendingChip(table: TableState, chipIndex: number): TableState {
   if (table.phase !== 'betting' || chipIndex < 0 || chipIndex >= table.pendingChips.length) return table;
