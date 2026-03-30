@@ -2,6 +2,10 @@ import {BarChart3, Coins, History, Settings, ShieldCheck, Trophy, User, Wallet, 
 import {motion} from 'motion/react';
 import type {ReactNode} from 'react';
 import {useState} from 'react';
+import clubIcon from './assets/card-suits/club.svg';
+import diamondIcon from './assets/card-suits/diamond.svg';
+import heartIcon from './assets/card-suits/heart.svg';
+import spadeIcon from './assets/card-suits/spade.svg';
 import {
   analyzeHand,
   canDouble,
@@ -470,11 +474,18 @@ function rankLabel(card?: Card): string {
 }
 
 function suitLabel(suit: Card['suit']): string {
-  if (suit === 'spades') return 'Sp';
-  if (suit === 'hearts') return 'He';
-  if (suit === 'diamonds') return 'Di';
-  return 'Cl';
-}
+    if (suit === 'spades') return 'Sp';
+    if (suit === 'hearts') return 'He';
+    if (suit === 'diamonds') return 'Di';
+    return 'Cl';
+  }
+
+function suitIcon(suit: Card['suit']): string {
+    if (suit === 'spades') return spadeIcon;
+    if (suit === 'hearts') return heartIcon;
+    if (suit === 'diamonds') return diamondIcon;
+    return clubIcon;
+  }
 
 function Metric({label, value, accent}: {label: string; value: string; accent: string}) {
   return (
@@ -514,17 +525,18 @@ function TableCard({card, hidden, delay}: {key?: string; card: Card; hidden?: bo
         </div>
       </motion.div>
     );
+    }
+    const suit = suitLabel(card.suit);
+    const icon = suitIcon(card.suit);
+    const red = card.suit === 'hearts' || card.suit === 'diamonds';
+    return (
+      <motion.div initial={{y: 16, opacity: 0, rotate: -4}} animate={{y: 0, opacity: 1, rotate: 0}} transition={{delay}} className="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white p-2 text-zinc-900 shadow-2xl transition hover:-translate-y-2">
+        <div className={`text-lg font-black leading-none ${red ? 'text-rose-600' : 'text-zinc-900'}`}>{card.rank}<div className="mt-0.5 flex h-4 items-center"><img src={icon} alt={suit} className="h-3.5 w-3.5" /></div></div>
+        <div className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-10 transition group-hover:scale-110"><img src={icon} alt="" aria-hidden="true" className="h-8 w-8" /></div>
+        <div className={`self-end rotate-180 text-lg font-black leading-none ${red ? 'text-rose-600' : 'text-zinc-900'}`}>{card.rank}<div className="mt-0.5 flex h-4 items-center"><img src={icon} alt={suit} className="h-3.5 w-3.5" /></div></div>
+      </motion.div>
+    );
   }
-  const suit = suitLabel(card.suit);
-  const red = card.suit === 'hearts' || card.suit === 'diamonds';
-  return (
-    <motion.div initial={{y: 16, opacity: 0, rotate: -4}} animate={{y: 0, opacity: 1, rotate: 0}} transition={{delay}} className="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white p-2 text-zinc-900 shadow-2xl transition hover:-translate-y-2">
-      <div className={`text-lg font-black leading-none ${red ? 'text-rose-600' : 'text-zinc-900'}`}>{card.rank}<div className="text-xs">{suit}</div></div>
-      <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl opacity-10 transition group-hover:scale-110 ${red ? 'text-rose-600' : 'text-zinc-900'}`}>{suit}</div>
-      <div className={`self-end rotate-180 text-lg font-black leading-none ${red ? 'text-rose-600' : 'text-zinc-900'}`}>{card.rank}<div className="text-xs">{suit}</div></div>
-    </motion.div>
-  );
-}
 
 function ChipButton({label, onClick, disabled, subtle = false}: {key?: string | number; label: string; onClick: () => void; disabled: boolean; subtle?: boolean}) {
   return (
