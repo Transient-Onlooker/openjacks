@@ -10,7 +10,8 @@ import {ActionButton, Badge, BettingChipRack, CasinoChip, Chip, ChipButton, Empt
 
 type Phase = 'betting' | 'player' | 'dealer' | 'round-over';
 type StrategyAction = 'Hit' | 'Stand' | 'Double' | 'Split';
-type RoundDecision = {handIndex: number; context: string; actual: StrategyAction; recommended: StrategyAction; matched: boolean};
+type DecisionImpact = 'perfect' | 'near' | 'miss' | 'major';
+type RoundDecision = {handIndex: number; context: string; actual: StrategyAction; recommended: StrategyAction; matched: boolean; score: number; impact: DecisionImpact; note: string};
 type TableState = {shoe: Card[]; dealerCards: Card[]; playerHands: Hand[]; activeHandIndex: number; phase: Phase; message: string; stats: SessionStats; roundNumber: number; bankroll: number; pendingBet: number; pendingChips: number[]; roundDecisions: RoundDecision[]};
 type HistoryEntry = {id: string; roundNumber: number; headline: string; message: string; bankroll: number; delta: number; wager: number; payout: number; timestamp: string; accuracy: number | null; matchedDecisions: number; totalDecisions: number; takeaway: string; missedDecisions: RoundDecision[]};
 type UISettings = {showBasicStrategy: boolean; bankruptcyAlert: boolean; confirmEarlyExit: boolean; landscapeControlsLeft: boolean};
@@ -51,6 +52,15 @@ export default function App() {
   const [settings, setSettings] = useState<UISettings>(DEFAULT_SETTINGS);
   const lastLoggedRoundRef = useRef(0);
   const [table, setTable] = useState<TableState>(createInitialTableState());
+  const resetSessionHistory = () => {
+    lastLoggedRoundRef.current = 0;
+    setHistoryEntries([]);
+  };
+  const restartSession = () => {
+    setShowStatsView(false);
+    resetSessionHistory();
+    setTable(restartSessionAfterBust());
+  };
 
   useEffect(() => {
     if (table.phase !== 'round-over') {
@@ -108,7 +118,7 @@ export default function App() {
   const worstRound = historyEntries.reduce<HistoryEntry | null>((worst, entry) => (!worst || entry.delta < worst.delta ? entry : worst), null);
   const reviewedDecisions = historyEntries.reduce((sum, entry) => sum + entry.totalDecisions, 0);
   const matchedDecisions = historyEntries.reduce((sum, entry) => sum + entry.matchedDecisions, 0);
-  const overallAccuracy = reviewedDecisions === 0 ? null : matchedDecisions / reviewedDecisions;
+  const overallAccuracy = reviewedDecisions === 0 ? null : historyEntries.reduce((sum, entry) => sum + ((entry.accuracy ?? 0) * entry.totalDecisions), 0) / reviewedDecisions;
   const sessionAnalysis = analyzeSession(historyEntries, STARTING_BANKROLL);
 
   useEffect(() => {
@@ -185,8 +195,12 @@ export default function App() {
         event.preventDefault();
         if (table.phase === 'round-over') {
           if (!showRoundOverOverlay) return;
-          setShowStatsView(false);
-          setTable((current) => current.bankroll > 0 ? prepareNextRound(current) : restartSessionAfterBust());
+          if (table.bankroll > 0) {
+            setShowStatsView(false);
+            setTable((current) => prepareNextRound(current));
+          } else {
+            restartSession();
+          }
           return;
         }
         setTable((current) => startRound(current));
@@ -195,7 +209,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeydown);
     return () => window.removeEventListener('keydown', handleKeydown);
-  }, [showHistoryView, showRoundOverOverlay, showSettingsView, showStatsView, table.phase]);
+  }, [showHistoryView, showRoundOverOverlay, showSettingsView, showStatsView, table.bankroll, table.phase]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_#153725_0%,_#08110c_45%,_#040706_100%)] text-zinc-100">
@@ -251,7 +265,7 @@ export default function App() {
                 onEarlyExit={() => {
                   if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 올려둔 칩은 정리되고 1라운드부터 다시 시작합니다.')) return;
                   setShowStatsView(false);
-                  setHistoryEntries([]);
+                  resetSessionHistory();
                   setTable((current) => endSessionEarly(current));
                 }}
                 onStartRound={() => setTable((current) => startRound(current))}
@@ -261,7 +275,7 @@ export default function App() {
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.35)_100%)] opacity-90" />
               <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_22%,transparent_75%,rgba(0,0,0,0.25))]" />
               <div className="relative flex min-h-[34rem] flex-col justify-between gap-8 rounded-[1.6rem] border border-white/8 px-4 py-8 sm:px-8">
-                {table.phase === 'round-over' && showRoundOverOverlay ? <RoundOver table={table} onReplay={() => { setShowStatsView(false); setTable((current) => current.bankroll > 0 ? prepareNextRound(current) : restartSessionAfterBust()); }} replayLabel="한번 더 하기" onStats={() => setShowStatsView(true)} /> : null}
+                {table.phase === 'round-over' && showRoundOverOverlay ? <RoundOver table={table} onReplay={() => { if (table.bankroll > 0) { setShowStatsView(false); setTable((current) => prepareNextRound(current)); } else { restartSession(); } }} replayLabel="한번 더 하기" onStats={() => setShowStatsView(true)} /> : null}
                 <div className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 text-center opacity-20 md:block"><p className="text-5xl font-black uppercase tracking-[0.16em] text-white">Blackjack</p><p className="mt-3 text-xs font-bold uppercase tracking-[0.6em] text-white/80">Pays 3 To 2</p><div className="mx-auto mt-5 h-px w-56 bg-white/40" /><p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.4em] text-white/80">Dealer stands on all 17s</p></div>
                 <div className="relative z-10 flex flex-col items-center gap-4">
                   <Badge icon={<History className="h-3 w-3" />} label="딜러" value={table.dealerCards.length === 0 ? '-' : dealerRevealed && dealerSummary ? String(dealerSummary.total) : `${rankLabel(table.dealerCards[0])}+?`} tone="slate" />
@@ -288,7 +302,7 @@ export default function App() {
                 onEarlyExit={() => {
                   if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 올려둔 칩은 정리되고 1라운드부터 다시 시작합니다.')) return;
                   setShowStatsView(false);
-                  setHistoryEntries([]);
+                  resetSessionHistory();
                   setTable((current) => endSessionEarly(current));
                 }}
                 onStartRound={() => setTable((current) => startRound(current))}
@@ -436,24 +450,44 @@ function suitLabel(suit: Card['suit']): string { if (suit === 'spades') return '
 function suitIcon(suit: Card['suit']): string { if (suit === 'spades') return spadeIcon; if (suit === 'hearts') return heartIcon; if (suit === 'diamonds') return diamondIcon; return clubIcon; }
 function dealerUpCardLabel(card: Card): string { return `딜러 ${card.rank}`; }
 function decisionContext(hand: Hand, dealerUpCard: Card): string { const summary = summarizeHand(hand.cards); if (hand.cards.length === 2 && hand.cards[0].rank === hand.cards[1].rank) return `${hand.cards[0].rank}-${hand.cards[1].rank} vs ${dealerUpCardLabel(dealerUpCard)}`; return `${summary.isSoft ? '소프트' : '하드'} ${summary.total} vs ${dealerUpCardLabel(dealerUpCard)}`; }
+function evaluateDecision(actual: StrategyAction, recommended: StrategyAction): Pick<RoundDecision, 'score' | 'impact' | 'note'> {
+  if (actual === recommended) return {score: 1, impact: 'perfect', note: '기본 전략과 정확히 일치한 선택이었습니다.'};
+  if (recommended === 'Double' && actual === 'Hit') return {score: 0.78, impact: 'near', note: '방향은 맞았지만 더블다운 기대값을 놓쳤습니다.'};
+  if (recommended === 'Double' && actual === 'Stand') return {score: 0.58, impact: 'miss', note: '위험은 줄였지만 수익 기대값이 꽤 줄어드는 선택이었습니다.'};
+  if (recommended === 'Double' && actual === 'Split') return {score: 0.22, impact: 'major', note: '더블 구간에서 분할을 택해 기대값 차이가 큰 편이었습니다.'};
+  if (recommended === 'Hit' && actual === 'Double') return {score: 0.38, impact: 'major', note: '히트 구간에서 더블은 베팅을 과하게 늘리는 선택이었습니다.'};
+  if (recommended === 'Hit' && actual === 'Stand') return {score: 0.3, impact: 'major', note: '카드를 더 받아야 하는 구간에서 멈춰 손패 개선 기회를 놓쳤습니다.'};
+  if (recommended === 'Hit' && actual === 'Split') return {score: 0.45, impact: 'miss', note: '히트보다 분할 기대값이 낮은 상황이었습니다.'};
+  if (recommended === 'Stand' && actual === 'Hit') return {score: 0.24, impact: 'major', note: '멈추는 쪽이 유리한 구간에서 버스트 위험을 더 키웠습니다.'};
+  if (recommended === 'Stand' && actual === 'Double') return {score: 0.12, impact: 'major', note: '스탠드 구간에서 더블은 위험과 손실 변동을 크게 키웁니다.'};
+  if (recommended === 'Stand' && actual === 'Split') return {score: 0.34, impact: 'major', note: '이미 서는 편이 좋은 손패를 분할해 기대값을 크게 깎았습니다.'};
+  if (recommended === 'Split' && actual === 'Hit') return {score: 0.56, impact: 'miss', note: '분할 이점을 놓쳤지만 완전히 반대 방향은 아니었습니다.'};
+  if (recommended === 'Split' && actual === 'Stand') return {score: 0.36, impact: 'major', note: '분할로 손패 가치를 키워야 하는 구간에서 너무 일찍 멈췄습니다.'};
+  return {score: 0.28, impact: 'major', note: '분할 추천 구간에서 기대값 차이가 큰 선택이었습니다.'};
+}
 function recordDecision(table: TableState, actual: StrategyAction): TableState {
   const hand = table.playerHands[table.activeHandIndex];
   const dealerUpCard = table.dealerCards[0];
   if (!hand || !dealerUpCard) return table;
   const recommended = getRecommendation(hand, dealerUpCard).action;
-  return {...table, roundDecisions: [...table.roundDecisions, {handIndex: table.activeHandIndex, context: decisionContext(hand, dealerUpCard), actual, recommended, matched: actual === recommended}]};
+  const review = evaluateDecision(actual, recommended);
+  return {...table, roundDecisions: [...table.roundDecisions, {handIndex: table.activeHandIndex, context: decisionContext(hand, dealerUpCard), actual, recommended, matched: actual === recommended, ...review}]};
 }
 function buildRoundReview(decisions: RoundDecision[]): Pick<HistoryEntry, 'accuracy' | 'matchedDecisions' | 'totalDecisions' | 'takeaway' | 'missedDecisions'> {
   const totalDecisions = decisions.length;
   const matchedDecisions = decisions.filter((decision) => decision.matched).length;
   const missedDecisions = decisions.filter((decision) => !decision.matched);
-  const accuracy = totalDecisions === 0 ? null : matchedDecisions / totalDecisions;
+  const accuracy = totalDecisions === 0 ? null : decisions.reduce((sum, decision) => sum + decision.score, 0) / totalDecisions;
   if (totalDecisions === 0) return {accuracy, matchedDecisions, totalDecisions, takeaway: '자동 정산된 라운드라서 평가할 선택 기록이 없었습니다.', missedDecisions};
   if (missedDecisions.length === 0) return {accuracy, matchedDecisions, totalDecisions, takeaway: `핵심 선택 ${totalDecisions}회 모두 기본 전략 추천과 일치했습니다.`, missedDecisions};
-  const firstMiss = missedDecisions[0];
-  return {accuracy, matchedDecisions, totalDecisions, takeaway: `${firstMiss.context}에서는 ${actionLabel(firstMiss.actual)}보다 ${actionLabel(firstMiss.recommended)}가 더 좋은 선택이었습니다.`, missedDecisions};
+  const biggestMiss = [...missedDecisions].sort((left, right) => left.score - right.score)[0];
+  return {accuracy, matchedDecisions, totalDecisions, takeaway: `${biggestMiss.context}에서는 ${actionLabel(biggestMiss.actual)}보다 ${actionLabel(biggestMiss.recommended)}가 더 좋았습니다. ${biggestMiss.note}`, missedDecisions};
 }
-function accuracyLabel(value: number | null): string { return value === null ? '평가 없음' : percent(value); }
+function accuracyLabel(value: number | null): string {
+  if (value === null) return '평가 없음';
+  const band = value >= 0.9 ? '정확' : value >= 0.75 ? '양호' : value >= 0.5 ? '보통' : '위험';
+  return `${percent(value)} · ${band}`;
+}
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((left, right) => left - right);
@@ -567,7 +601,7 @@ function RoundHistoryCard({entry, panelTone = 'dark'}: {key?: string; entry: His
     </div>
     <div className={`mt-4 rounded-2xl border p-3 text-sm leading-6 ${entry.missedDecisions.length === 0 ? 'border-emerald-400/20 bg-emerald-500/8 text-emerald-100' : 'border-amber-300/20 bg-amber-500/8 text-amber-100'}`}>
       <p className="font-semibold">{entry.takeaway}</p>
-      {entry.missedDecisions.length > 0 ? <div className="mt-3 space-y-2">{entry.missedDecisions.map((decision, index) => <p key={`${entry.id}-${index}`} className="text-sm leading-6 text-zinc-200">{decision.context}: {actionLabel(decision.actual)} 대신 {actionLabel(decision.recommended)}가 더 좋았습니다.</p>)}</div> : null}
+      {entry.missedDecisions.length > 0 ? <div className="mt-3 space-y-2">{entry.missedDecisions.map((decision, index) => <p key={`${entry.id}-${index}`} className="text-sm leading-6 text-zinc-200">{decision.context}: {actionLabel(decision.actual)} 대신 {actionLabel(decision.recommended)}가 더 좋았습니다. {decision.note}</p>)}</div> : null}
     </div>
   </div>;
 }
