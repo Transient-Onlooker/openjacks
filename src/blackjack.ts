@@ -21,6 +21,8 @@ export type Card = {
   suit: Suit;
 };
 
+export type RoundResult = 'win' | 'lose' | 'push' | 'blackjack';
+
 export type Hand = {
   id: string;
   cards: Card[];
@@ -29,10 +31,9 @@ export type Hand = {
   busted: boolean;
   doubled: boolean;
   blackjack: boolean;
+  isSplitAces?: boolean;
   result?: RoundResult;
 };
-
-export type RoundResult = 'win' | 'lose' | 'push' | 'blackjack';
 
 export type SessionStats = {
   rounds: number;
@@ -93,6 +94,7 @@ export function createShuffledDeck(deckCount = 1): Card[] {
     const swapIndex = Math.floor(Math.random() * (index + 1));
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
+
   return shuffled;
 }
 
@@ -166,35 +168,17 @@ export function dealerShouldReveal(dealerCards: Card[], phase: 'player' | 'deale
 }
 
 export function compareHands(player: HandSummary, dealer: HandSummary): RoundResult {
-  if (player.isBust) {
-    return 'lose';
-  }
-
-  if (dealer.isBust) {
-    return player.isBlackjack ? 'blackjack' : 'win';
-  }
-
-  if (player.isBlackjack && !dealer.isBlackjack) {
-    return 'blackjack';
-  }
-
-  if (!player.isBlackjack && dealer.isBlackjack) {
-    return 'lose';
-  }
-
-  if (player.total > dealer.total) {
-    return 'win';
-  }
-
-  if (player.total < dealer.total) {
-    return 'lose';
-  }
-
+  if (player.isBust) return 'lose';
+  if (dealer.isBust) return player.isBlackjack ? 'blackjack' : 'win';
+  if (player.isBlackjack && !dealer.isBlackjack) return 'blackjack';
+  if (!player.isBlackjack && dealer.isBlackjack) return 'lose';
+  if (player.total > dealer.total) return 'win';
+  if (player.total < dealer.total) return 'lose';
   return 'push';
 }
 
 export function canDouble(hand: Hand, phase: 'player' | 'dealer' | 'round-over'): boolean {
-  return phase === 'player' && hand.cards.length === 2 && !hand.stood && !hand.busted;
+  return phase === 'player' && hand.cards.length === 2 && !hand.stood && !hand.busted && !hand.isSplitAces;
 }
 
 export function canSplit(hand: Hand, phase: 'player' | 'dealer' | 'round-over', handCount: number): boolean {
@@ -202,11 +186,7 @@ export function canSplit(hand: Hand, phase: 'player' | 'dealer' | 'round-over', 
     return false;
   }
 
-  return splitValue(hand.cards[0]) === splitValue(hand.cards[1]);
-}
-
-function splitValue(card: Card): string {
-  return TEN_VALUE_RANKS.includes(card.rank) ? '10' : card.rank;
+  return hand.cards[0].rank === hand.cards[1].rank;
 }
 
 export function getRecommendation(hand: Hand, dealerUpCard: Card): Recommendation {
@@ -214,7 +194,7 @@ export function getRecommendation(hand: Hand, dealerUpCard: Card): Recommendatio
   const dealerValue = dealerUpCard.rank === 'A' ? 11 : rankValue(dealerUpCard.rank);
 
   if (canRecommendSplit(hand)) {
-    const splitAdvice = getPairRecommendation(splitValue(hand.cards[0]), dealerValue);
+    const splitAdvice = getPairRecommendation(hand.cards[0].rank, dealerValue);
     if (splitAdvice) {
       return splitAdvice;
     }
@@ -228,62 +208,56 @@ export function getRecommendation(hand: Hand, dealerUpCard: Card): Recommendatio
 }
 
 function canRecommendSplit(hand: Hand): boolean {
-  return hand.cards.length === 2 && splitValue(hand.cards[0]) === splitValue(hand.cards[1]);
+  return hand.cards.length === 2 && hand.cards[0].rank === hand.cards[1].rank;
 }
 
-function getPairRecommendation(pairValue: string, dealerValue: number): Recommendation | null {
-  if (pairValue === 'A' || pairValue === '8') {
+function getPairRecommendation(rank: Rank, dealerValue: number): Recommendation | null {
+  if (rank === 'A' || rank === '8') {
     return {
       action: 'Split',
-      reason: 'A-A와 8-8은 PDF 기본 전략 표에서도 가장 우선적인 분할 케이스입니다.',
+      reason: 'A-A와 8-8은 가장 대표적인 분할 상황입니다.',
     };
   }
 
-  if (pairValue === '10') {
+  if (rank === '10') {
     return {
       action: 'Stand',
-      reason: '10점 페어는 이미 강한 20이므로 분할보다 스탠드가 유리합니다.',
+      reason: '10-10은 이미 강한 20이므로 분할보다 스탠드가 일반적입니다.',
     };
   }
 
-  if (pairValue === '9') {
-    return dealerValue >= 7 && dealerValue !== 8 && dealerValue !== 9
-      ? {
-          action: 'Stand',
-          reason: '9-9는 7, 10, A 상대로는 스탠드가 더 안정적입니다.',
-        }
-      : {
-          action: 'Split',
-          reason: '9-9는 2-6, 8-9 상대로 분할해 강한 두 손패로 만드는 편이 좋습니다.',
-        };
+  if (rank === '9') {
+    return dealerValue === 7 || dealerValue === 10 || dealerValue === 11
+      ? {action: 'Stand', reason: '9-9는 7, 10, A 상대로는 스탠드가 일반적입니다.'}
+      : {action: 'Split', reason: '9-9는 중간 이하 딜러 업카드 상대로 분할이 유리합니다.'};
   }
 
-  if (pairValue === '7') {
+  if (rank === '7') {
     return dealerValue <= 7
-      ? {action: 'Split', reason: '7-7은 약한 딜러 업카드 상대로 분할이 권장됩니다.'}
-      : {action: 'Hit', reason: '7-7은 강한 딜러 업카드 상대로 분할 이득이 줄어 히트가 안전합니다.'};
+      ? {action: 'Split', reason: '7-7은 2-7 상대로 분할이 일반적입니다.'}
+      : {action: 'Hit', reason: '강한 딜러 업카드 상대로는 분할보다 히트가 보편적입니다.'};
   }
 
-  if (pairValue === '6') {
+  if (rank === '6') {
     return dealerValue <= 6
-      ? {action: 'Split', reason: '6-6은 2-6 상대로 분할하는 기본 전략 구간입니다.'}
-      : {action: 'Hit', reason: '6-6은 7 이상 상대로 분할보다 히트가 낫습니다.'};
+      ? {action: 'Split', reason: '6-6은 2-6 상대로 분할이 일반적입니다.'}
+      : {action: 'Hit', reason: '7 이상 상대로는 히트가 더 무난합니다.'};
   }
 
-  if (pairValue === '5') {
+  if (rank === '5') {
     return dealerValue <= 9
-      ? {action: 'Double', reason: '5-5는 10점 한 손패로 보고 2-9 상대로 더블을 노립니다.'}
-      : {action: 'Hit', reason: '5-5는 10 또는 A 상대로 더블보다 히트가 안전합니다.'};
+      ? {action: 'Double', reason: '5-5는 보통 분할하지 않고 10으로 보고 더블다운을 노립니다.'}
+      : {action: 'Hit', reason: '딜러 10 또는 A 상대로는 히트가 더 일반적입니다.'};
   }
 
-  if (pairValue === '4') {
-    return {action: 'Hit', reason: '4-4는 이번 테이블에서는 분할보다 히트 기준으로 처리합니다.'};
+  if (rank === '4') {
+    return {action: 'Hit', reason: '4-4는 이 테이블 규칙에서는 분할보다 히트가 무난합니다.'};
   }
 
-  if (pairValue === '3' || pairValue === '2') {
+  if (rank === '3' || rank === '2') {
     return dealerValue <= 7
-      ? {action: 'Split', reason: `${pairValue}-${pairValue}는 2-7 상대로 분할이 권장됩니다.`}
-      : {action: 'Hit', reason: `${pairValue}-${pairValue}는 강한 업카드 상대로 분할보다 히트가 낫습니다.`};
+      ? {action: 'Split', reason: `${rank}-${rank}는 2-7 상대로 분할이 일반적입니다.`}
+      : {action: 'Hit', reason: `${rank}-${rank}는 강한 업카드 상대로 히트가 더 일반적입니다.`};
   }
 
   return null;
@@ -292,86 +266,59 @@ function getPairRecommendation(pairValue: string, dealerValue: number): Recommen
 function getSoftRecommendation(total: number, dealerValue: number): Recommendation {
   if (total <= 17) {
     if (total === 17 && dealerValue >= 3 && dealerValue <= 6) {
-      return {
-        action: 'Double',
-        reason: '소프트 17(A,6)은 3-6 상대로 더블다운 구간입니다.',
-      };
+      return {action: 'Double', reason: '소프트 17은 3-6 상대로 더블다운이 일반적입니다.'};
     }
 
-    if (total === 18 && dealerValue >= 3 && dealerValue <= 6) {
-      return {
-        action: 'Double',
-        reason: '소프트 18(A,7)은 약한 업카드 상대로 더블 기회가 납니다.',
-      };
-    }
-
-    return {
-      action: 'Hit',
-      reason: '소프트 핸드는 버스트 여지가 낮아 더 높은 합을 노리는 히트가 기본입니다.',
-    };
+    return {action: 'Hit', reason: '소프트 13-17은 버스트 위험이 낮아 히트가 일반적입니다.'};
   }
 
   if (total === 18) {
+    if (dealerValue >= 3 && dealerValue <= 6) {
+      return {action: 'Double', reason: '소프트 18은 3-6 상대로 더블다운이 자주 권장됩니다.'};
+    }
+
     return dealerValue >= 9 || dealerValue === 11
-      ? {
-          action: 'Hit',
-          reason: '소프트 18은 9, 10, A 상대로 스탠드보다 히트가 낫습니다.',
-        }
-      : {
-          action: 'Stand',
-          reason: '소프트 18은 중간 이하 업카드 상대로 이미 충분히 강한 스탠드 구간입니다.',
-        };
+      ? {action: 'Hit', reason: '소프트 18은 9, 10, A 상대로 히트가 일반적입니다.'}
+      : {action: 'Stand', reason: '소프트 18은 중간 이하 업카드 상대로 스탠드가 무난합니다.'};
   }
 
-  return {
-    action: 'Stand',
-    reason: '소프트 19 이상은 추가 리스크 없이 스탠드가 기본입니다.',
-  };
+  return {action: 'Stand', reason: '소프트 19 이상은 스탠드가 일반적입니다.'};
 }
 
 function getHardRecommendation(total: number, dealerValue: number): Recommendation {
   if (total <= 8) {
-    return {
-      action: 'Hit',
-      reason: '8 이하 하드 핸드는 더 키워야 해서 히트가 기본입니다.',
-    };
+    return {action: 'Hit', reason: '하드 8 이하는 히트가 기본입니다.'};
   }
 
   if (total === 9) {
     return dealerValue >= 3 && dealerValue <= 6
-      ? {action: 'Double', reason: '하드 9는 3-6 상대로 더블다운 기대값이 좋습니다.'}
-      : {action: 'Hit', reason: '하드 9는 강한 업카드 상대로 아직 히트가 우선입니다.'};
+      ? {action: 'Double', reason: '하드 9는 3-6 상대로 더블다운이 일반적입니다.'}
+      : {action: 'Hit', reason: '하드 9는 강한 업카드 상대로 히트가 무난합니다.'};
   }
 
   if (total === 10) {
     return dealerValue <= 9
-      ? {action: 'Double', reason: '하드 10은 2-9 상대로 더블다운 핵심 구간입니다.'}
-      : {action: 'Hit', reason: '하드 10은 10 또는 A 상대로 더블보다 히트가 안전합니다.'};
+      ? {action: 'Double', reason: '하드 10은 2-9 상대로 더블다운이 일반적입니다.'}
+      : {action: 'Hit', reason: '딜러 10 또는 A 상대로는 히트가 더 일반적입니다.'};
   }
 
   if (total === 11) {
-    return {
-      action: 'Double',
-      reason: '하드 11은 PDF 전략표와 일반 기본 전략 모두에서 대표적인 더블다운 구간입니다.',
-    };
+    return {action: 'Double', reason: '하드 11은 가장 대표적인 더블다운 구간입니다.'};
   }
 
   if (total === 12) {
     return dealerValue >= 4 && dealerValue <= 6
-      ? {action: 'Stand', reason: '하드 12는 4-6 상대로 딜러 버스트를 기다리는 편이 낫습니다.'}
-      : {action: 'Hit', reason: '하드 12는 2-3 또는 7 이상 상대로 히트가 기본입니다.'};
+      ? {action: 'Stand', reason: '하드 12는 4-6 상대로 스탠드가 일반적입니다.'}
+      : {action: 'Hit', reason: '하드 12는 2-3, 7-A 상대로 히트가 일반적입니다.'};
   }
 
   if (total >= 13 && total <= 16) {
     return dealerValue <= 6
-      ? {action: 'Stand', reason: '13-16은 약한 업카드 상대로 스탠드가 기본입니다.'}
-      : {action: 'Hit', reason: '13-16은 7 이상 상대로 히트가 권장됩니다.'};
+      ? {action: 'Stand', reason: '하드 13-16은 약한 딜러 상대로 스탠드가 일반적입니다.'}
+      : {action: 'Hit', reason: '하드 13-16은 강한 딜러 상대로 히트가 일반적입니다.'};
   }
 
-  return {
-    action: 'Stand',
-    reason: '하드 17 이상은 추가 히트 리스크가 너무 커서 스탠드합니다.',
-  };
+  return {action: 'Stand', reason: '하드 17 이상은 스탠드가 기본입니다.'};
 }
 
 export function analyzeHand(hand: Hand, shoe: Card[], exposedCards: Card[]): AnalysisSnapshot {
@@ -394,7 +341,6 @@ export function analyzeHand(hand: Hand, shoe: Card[], exposedCards: Card[]): Ana
   let busts = 0;
   let safe = 0;
   let improvement = 0;
-
   const drawMap = new Map<string, number>();
   const highCards = shoe.filter((card) => rankValue(card.rank) === 10).length;
   const lowCards = shoe.filter((card) => ['2', '3', '4', '5', '6'].includes(card.rank)).length;
@@ -457,33 +403,15 @@ function getRunningCount(cards: Card[]): number {
 }
 
 function formatRankLabel(rank: Rank): string {
-  if (rank === 'A') {
-    return 'A';
-  }
-
-  if (TEN_VALUE_RANKS.includes(rank)) {
-    return '10/J/Q/K';
-  }
-
+  if (rank === 'A') return 'A';
+  if (TEN_VALUE_RANKS.includes(rank)) return '10/J/Q/K';
   return rank;
 }
 
 export function formatResult(result?: RoundResult): string {
-  if (result === 'blackjack') {
-    return '블랙잭';
-  }
-
-  if (result === 'win') {
-    return '승리';
-  }
-
-  if (result === 'lose') {
-    return '패배';
-  }
-
-  if (result === 'push') {
-    return '무승부';
-  }
-
+  if (result === 'blackjack') return '블랙잭';
+  if (result === 'win') return '승리';
+  if (result === 'lose') return '패배';
+  if (result === 'push') return '무승부';
   return '진행 중';
 }
