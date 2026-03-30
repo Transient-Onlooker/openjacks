@@ -37,7 +37,7 @@ export default function App() {
     }
     const timer = window.setTimeout(() => {
       setShowRoundOverOverlay(true);
-    }, 900);
+    }, 1400);
     return () => window.clearTimeout(timer);
   }, [table.phase, table.roundNumber]);
 
