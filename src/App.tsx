@@ -1,7 +1,6 @@
 import {BarChart3, Coins, History, Settings, ShieldCheck, Trophy, User, Wallet, Zap} from 'lucide-react';
-import {motion} from 'motion/react';
 import type {ReactNode} from 'react';
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 import clubIcon from './assets/card-suits/club.svg';
 import diamondIcon from './assets/card-suits/diamond.svg';
 import heartIcon from './assets/card-suits/heart.svg';
@@ -59,6 +58,12 @@ export default function App() {
     bankroll: STARTING_BANKROLL,
     pendingBet: 0,
   }));
+
+  useEffect(() => {
+    if (table.bankroll === 0 && table.phase === 'betting') {
+      window.alert('파산! 한강으로 떠나요');
+    }
+  }, [table.bankroll, table.phase]);
 
   const dealerRevealed =
     table.dealerCards.length > 0 &&
@@ -518,23 +523,23 @@ function EmptySlot({label}: {label: string}) {
 function TableCard({card, hidden, delay}: {key?: string; card: Card; hidden?: boolean; delay: number}) {
   if (hidden) {
     return (
-      <motion.div initial={{y: 16, opacity: 0}} animate={{y: 0, opacity: 1}} transition={{delay}} className="relative flex h-28 w-20 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl">
+      <div className="relative flex h-28 w-20 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl" style={{animationDelay: `${delay}s`}}>
         <div className="absolute inset-0 bg-[repeating-linear-gradient(45deg,rgba(255,255,255,0.07)_0px,rgba(255,255,255,0.07)_2px,transparent_2px,transparent_10px)] opacity-20" />
         <div className="flex h-16 w-12 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10">
           <Zap className="h-6 w-6 text-emerald-300" />
         </div>
-      </motion.div>
+      </div>
     );
     }
     const suit = suitLabel(card.suit);
     const icon = suitIcon(card.suit);
     const red = card.suit === 'hearts' || card.suit === 'diamonds';
     return (
-      <motion.div initial={{y: 16, opacity: 0, rotate: -4}} animate={{y: 0, opacity: 1, rotate: 0}} transition={{delay}} className="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white p-2 text-zinc-900 shadow-2xl transition hover:-translate-y-2">
+      <div className="group relative flex h-28 w-20 cursor-pointer flex-col justify-between overflow-hidden rounded-2xl bg-white p-2 text-zinc-900 shadow-2xl transition hover:-translate-y-2" style={{animationDelay: `${delay}s`}}>
         <div className={`text-lg font-black leading-none ${red ? 'text-rose-600' : 'text-zinc-900'}`}>{card.rank}<div className="mt-0.5 flex h-4 items-center"><img src={icon} alt={suit} className="h-3.5 w-3.5" /></div></div>
         <div className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-10 transition group-hover:scale-110"><img src={icon} alt="" aria-hidden="true" className="h-8 w-8" /></div>
         <div className={`self-end rotate-180 text-lg font-black leading-none ${red ? 'text-rose-600' : 'text-zinc-900'}`}>{card.rank}<div className="mt-0.5 flex h-4 items-center"><img src={icon} alt={suit} className="h-3.5 w-3.5" /></div></div>
-      </motion.div>
+      </div>
     );
   }
 

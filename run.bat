@@ -26,6 +26,11 @@ if not exist "node_modules" (
   )
 )
 
+if exist "node_modules\.vite" (
+  echo Clearing Vite cache...
+  rmdir /s /q "node_modules\.vite"
+)
+
 start "" http://localhost:3000
 echo Starting Openjacks dev server on http://localhost:3000
 call npm run dev
