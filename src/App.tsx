@@ -10,7 +10,7 @@ import {analyzeHand, canDouble, canSplit, compareHands, createHand, createShuffl
 type Phase = 'betting' | 'player' | 'dealer' | 'round-over';
 type TableState = {shoe: Card[]; dealerCards: Card[]; playerHands: Hand[]; activeHandIndex: number; phase: Phase; message: string; stats: SessionStats; roundNumber: number; bankroll: number; pendingBet: number};
 type HistoryEntry = {id: string; roundNumber: number; headline: string; message: string; bankroll: number; delta: number; timestamp: string};
-type UISettings = {showBasicStrategy: boolean; bankruptcyAlert: boolean; confirmEarlyExit: boolean};
+type UISettings = {showBasicStrategy: boolean; bankruptcyAlert: boolean; confirmEarlyExit: boolean; landscapeControlsLeft: boolean};
 
 const STARTING_BANKROLL = 1000;
 const CHIP_VALUES = [100, 200, 300, 500];
@@ -18,13 +18,14 @@ const SHUFFLE_AT = 15;
 const DECK_COUNT = 1;
 const INITIAL_MESSAGE = '칩을 눌러 베팅을 쌓은 뒤 새 라운드를 시작하세요.';
 const INITIAL_STATS: SessionStats = {rounds: 0, wins: 0, losses: 0, pushes: 0, blackjacks: 0};
-const DEFAULT_SETTINGS: UISettings = {showBasicStrategy: false, bankruptcyAlert: true, confirmEarlyExit: true};
+const DEFAULT_SETTINGS: UISettings = {showBasicStrategy: false, bankruptcyAlert: true, confirmEarlyExit: true, landscapeControlsLeft: true};
 
 export default function App() {
   const [showStatsView, setShowStatsView] = useState(false);
   const [showHistoryView, setShowHistoryView] = useState(false);
   const [showSettingsView, setShowSettingsView] = useState(false);
   const [showRoundOverOverlay, setShowRoundOverOverlay] = useState(false);
+  const [isLandscapeLayout, setIsLandscapeLayout] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [settings, setSettings] = useState<UISettings>(DEFAULT_SETTINGS);
   const lastLoggedRoundRef = useRef(0);
@@ -50,6 +51,15 @@ export default function App() {
     }
   }, [settings.bankruptcyAlert, showRoundOverOverlay, table.bankroll, table.phase]);
 
+  useEffect(() => {
+    const updateLayout = () => {
+      setIsLandscapeLayout(window.innerWidth >= 1024 && window.innerWidth > window.innerHeight);
+    };
+    updateLayout();
+    window.addEventListener('resize', updateLayout);
+    return () => window.removeEventListener('resize', updateLayout);
+  }, []);
+
   const dealerRevealed = table.dealerCards.length > 0 && dealerShouldReveal(table.dealerCards, table.phase === 'betting' ? 'round-over' : table.phase);
   const activeHand = table.playerHands[table.activeHandIndex] ?? null;
   const exposedCards = getExposedCards(table.playerHands, table.dealerCards, dealerRevealed);
@@ -60,6 +70,7 @@ export default function App() {
   const winRate = played === 0 ? 0 : table.stats.wins / played;
   const liveBet = table.playerHands.reduce((sum, hand) => sum + hand.bet, 0);
   const currentRoundNumber = Math.max(table.roundNumber - (table.phase === 'round-over' ? 1 : 0), 1);
+  const useLandscapeControlDock = settings.landscapeControlsLeft && isLandscapeLayout;
   const roundResults = table.playerHands.reduce(
     (acc, hand) => {
       if (hand.result === 'win') acc.wins += 1;
@@ -116,40 +127,66 @@ export default function App() {
 
       <main className="relative mx-auto grid max-w-7xl gap-8 px-4 py-8 lg:grid-cols-12">
         <section className="flex flex-col gap-6 lg:col-span-8">
-          <div className="relative overflow-hidden rounded-[2rem] border border-emerald-400/20 bg-[#0d2c1f] p-4 shadow-[0_30px_120px_rgba(0,0,0,0.45)] sm:p-8">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.35)_100%)] opacity-90" />
-            <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_22%,transparent_75%,rgba(0,0,0,0.25))]" />
-            <div className="relative flex min-h-[34rem] flex-col justify-between gap-8 rounded-[1.6rem] border border-white/8 px-4 py-8 sm:px-8">
-              {table.phase === 'round-over' && showRoundOverOverlay ? <RoundOver table={table} onReplay={table.bankroll > 0 ? () => { setShowStatsView(false); setTable((current) => prepareNextRound(current)); } : undefined} onStats={() => setShowStatsView(true)} /> : null}
-              <div className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 text-center opacity-20 md:block"><p className="text-5xl font-black uppercase tracking-[0.16em] text-white">Blackjack</p><p className="mt-3 text-xs font-bold uppercase tracking-[0.6em] text-white/80">Pays 3 To 2</p><div className="mx-auto mt-5 h-px w-56 bg-white/40" /><p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.4em] text-white/80">Dealer stands on all 17s</p></div>
-              <div className="relative z-10 flex flex-col items-center gap-4">
-                <Badge icon={<History className="h-3 w-3" />} label="딜러" value={table.dealerCards.length === 0 ? '-' : dealerRevealed && dealerSummary ? String(dealerSummary.total) : `${rankLabel(table.dealerCards[0])}+?`} tone="slate" />
-                <div className="flex flex-wrap justify-center gap-3">
-                  {table.dealerCards.length === 0 ? <EmptySlot label="베팅 후 새 라운드를 시작하세요." /> : table.dealerCards.map((card, index) => <TableCard key={card.id} card={card} hidden={!dealerRevealed && index === 1} delay={index * 0.08} />)}
+          <div className={useLandscapeControlDock ? 'grid gap-6 xl:grid-cols-[19rem_minmax(0,1fr)] xl:items-start' : 'flex flex-col gap-6'}>
+            {useLandscapeControlDock ? (
+              <ControlDock
+                table={table}
+                activeHand={activeHand}
+                compact
+                onAddChip={(chip) => setTable((current) => addChip(current, chip))}
+                onResetBet={() => setTable((current) => ({...current, pendingBet: 0}))}
+                onHit={() => setTable((current) => hitCurrentHand(current))}
+                onStand={() => setTable((current) => standCurrentHand(current))}
+                onDouble={() => setTable((current) => doubleCurrentHand(current))}
+                onSplit={() => setTable((current) => splitCurrentHand(current))}
+                onEarlyExit={() => {
+                  if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 진행 중 베팅은 환불되고 1라운드부터 다시 시작합니다.')) return;
+                  setShowStatsView(false);
+                  setHistoryEntries([]);
+                  setTable((current) => endSessionEarly(current));
+                }}
+                onStartRound={() => setTable((current) => startRound(current))}
+              />
+            ) : null}
+            <div className="relative overflow-hidden rounded-[2rem] border border-emerald-400/20 bg-[#0d2c1f] p-4 shadow-[0_30px_120px_rgba(0,0,0,0.45)] sm:p-8">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.35)_100%)] opacity-90" />
+              <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_22%,transparent_75%,rgba(0,0,0,0.25))]" />
+              <div className="relative flex min-h-[34rem] flex-col justify-between gap-8 rounded-[1.6rem] border border-white/8 px-4 py-8 sm:px-8">
+                {table.phase === 'round-over' && showRoundOverOverlay ? <RoundOver table={table} onReplay={table.bankroll > 0 ? () => { setShowStatsView(false); setTable((current) => prepareNextRound(current)); } : undefined} onStats={() => setShowStatsView(true)} /> : null}
+                <div className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 text-center opacity-20 md:block"><p className="text-5xl font-black uppercase tracking-[0.16em] text-white">Blackjack</p><p className="mt-3 text-xs font-bold uppercase tracking-[0.6em] text-white/80">Pays 3 To 2</p><div className="mx-auto mt-5 h-px w-56 bg-white/40" /><p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.4em] text-white/80">Dealer stands on all 17s</p></div>
+                <div className="relative z-10 flex flex-col items-center gap-4">
+                  <Badge icon={<History className="h-3 w-3" />} label="딜러" value={table.dealerCards.length === 0 ? '-' : dealerRevealed && dealerSummary ? String(dealerSummary.total) : `${rankLabel(table.dealerCards[0])}+?`} tone="slate" />
+                  <div className="flex flex-wrap justify-center gap-3">
+                    {table.dealerCards.length === 0 ? <EmptySlot label="베팅 후 새 라운드를 시작하세요." /> : table.dealerCards.map((card, index) => <TableCard key={card.id} card={card} hidden={!dealerRevealed && index === 1} delay={index * 0.08} />)}
+                  </div>
+                </div>
+                <div className="relative z-10 grid w-full gap-4 md:grid-cols-2">
+                  {table.playerHands.length === 0 ? <div className="md:col-span-2"><EmptySlot label="아래 칩으로 베팅을 먼저 쌓아주세요." /></div> : table.playerHands.map((hand, index) => <HandPanel key={hand.id} hand={hand} index={index} active={table.phase === 'player' && index === table.activeHandIndex} multi={table.playerHands.length > 1} />)}
                 </div>
               </div>
-              <div className="relative z-10 grid w-full gap-4 md:grid-cols-2">
-                {table.playerHands.length === 0 ? <div className="md:col-span-2"><EmptySlot label="아래 칩으로 베팅을 먼저 쌓아주세요." /></div> : table.playerHands.map((hand, index) => <HandPanel key={hand.id} hand={hand} index={index} active={table.phase === 'player' && index === table.activeHandIndex} multi={table.playerHands.length > 1} />)}
-              </div>
             </div>
           </div>
 
-          <div className="rounded-[1.75rem] border border-white/8 bg-black/20 p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-zinc-500">베팅 칩</p><p className="mt-2 text-sm text-zinc-300">100, 200, 300, 500 칩을 여러 번 눌러 누적 베팅할 수 있습니다.</p></div>
-              <div className="flex flex-wrap gap-3">{CHIP_VALUES.map((chip) => <ChipButton key={chip} label={money(chip)} onClick={() => setTable((current) => addChip(current, chip))} disabled={table.phase !== 'betting' || table.pendingBet + chip > table.bankroll} />)}<ChipButton label="초기화" onClick={() => setTable((current) => ({...current, pendingBet: 0}))} disabled={table.phase !== 'betting' || table.pendingBet === 0} subtle /></div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <ActionButton label="히트" sub="카드 추가" onClick={() => setTable((current) => hitCurrentHand(current))} disabled={table.phase !== 'player'} />
-            <ActionButton label="스탠드" sub="턴 종료" onClick={() => setTable((current) => standCurrentHand(current))} disabled={table.phase !== 'player'} />
-            <ActionButton label="더블" sub="베팅 2배" onClick={() => setTable((current) => doubleCurrentHand(current))} disabled={!activeHand || !canDouble(activeHand, table.phase) || table.bankroll < activeHand.bet} />
-            <ActionButton label="스플릿" sub={activeHand && canSplit(activeHand, table.phase, table.playerHands.length) && table.bankroll >= activeHand.bet ? '가능' : '불가'} onClick={() => setTable((current) => splitCurrentHand(current))} disabled={!activeHand || !canSplit(activeHand, table.phase, table.playerHands.length) || table.bankroll < activeHand.bet} />
-          </div>
-
-          <button type="button" onClick={() => { if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 진행 중 베팅은 환불되고 1라운드부터 다시 시작합니다.')) return; setShowStatsView(false); setHistoryEntries([]); setTable((current) => endSessionEarly(current)); }} disabled={table.phase === 'round-over'} className={`self-center rounded-2xl px-8 py-3 text-sm font-black tracking-[0.24em] transition ${table.phase !== 'round-over' ? 'border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20' : 'cursor-not-allowed bg-white/10 text-zinc-500'}`}>조기 종료하기</button>
-          <button type="button" onClick={() => setTable((current) => startRound(current))} disabled={table.phase !== 'betting' || table.pendingBet === 0} className={`self-center rounded-2xl px-12 py-4 text-sm font-black uppercase tracking-[0.35em] transition active:scale-[0.98] ${table.phase === 'betting' && table.pendingBet > 0 ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'cursor-not-allowed bg-white/10 text-zinc-500'}`}>새 라운드</button>
+          {useLandscapeControlDock ? null : (
+            <ControlDock
+              table={table}
+              activeHand={activeHand}
+              compact={false}
+              onAddChip={(chip) => setTable((current) => addChip(current, chip))}
+              onResetBet={() => setTable((current) => ({...current, pendingBet: 0}))}
+              onHit={() => setTable((current) => hitCurrentHand(current))}
+              onStand={() => setTable((current) => standCurrentHand(current))}
+              onDouble={() => setTable((current) => doubleCurrentHand(current))}
+              onSplit={() => setTable((current) => splitCurrentHand(current))}
+              onEarlyExit={() => {
+                if (settings.confirmEarlyExit && !window.confirm('현재 세션을 조기 종료하고 새 게임을 시작할까요? 진행 중 베팅은 환불되고 1라운드부터 다시 시작합니다.')) return;
+                setShowStatsView(false);
+                setHistoryEntries([]);
+                setTable((current) => endSessionEarly(current));
+              }}
+              onStartRound={() => setTable((current) => startRound(current))}
+            />
+          )}
         </section>
 
         <aside className="flex flex-col gap-6 lg:col-span-4">
@@ -258,7 +295,27 @@ function pushHistory(setHistoryEntries: Dispatch<SetStateAction<HistoryEntry[]>>
 function RoundOver({table, onReplay, onStats}: {table: TableState; onReplay?: () => void; onStats: () => void}) { const headline = roundHeadline(table.playerHands); return <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[1.6rem] bg-black/55 p-6 backdrop-blur-sm"><div className="w-full max-w-md rounded-[1.6rem] border border-white/10 bg-[#08110c]/95 p-6 text-center shadow-2xl"><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">{headline}</p><p className="mt-3 text-2xl font-black text-white">{headline} 결과입니다</p><p className="mt-3 text-sm leading-6 text-zinc-300">{table.message}</p>{table.bankroll <= 0 ? <p className="mt-3 text-sm font-bold text-rose-300">보유금이 0원이라서 세션이 종료되었습니다.</p> : null}<div className={`mt-6 grid gap-3 ${onReplay ? 'sm:grid-cols-2' : ''}`}>{onReplay ? <button type="button" onClick={onReplay} className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black tracking-[0.18em] text-black transition hover:bg-emerald-400">다시 하기</button> : null}<button type="button" onClick={onStats} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">통계 보기</button></div></div></div>; }
 function StatsOverlay({roundNumber, message, bankroll, dealerTotal, roundWager, roundPayout, roundNet, roundResults, stats, winRate, hands, onClose}: {roundNumber: number; message: string; bankroll: number; dealerTotal: number | null; roundWager: number; roundPayout: number; roundNet: number; roundResults: {wins: number; losses: number; pushes: number; blackjacks: number}; stats: SessionStats; winRate: number; hands: Hand[]; onClose: () => void}) { return <div className="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"><div className="mx-auto flex h-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#07110d]/95 shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 px-6 py-4"><div><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">통계 보기</p><h2 className="mt-1 text-2xl font-black text-white">라운드 #{roundNumber} 결과 분석</h2></div><button type="button" onClick={onClose} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">닫기</button></div><div className="grid flex-1 gap-6 overflow-auto p-6 lg:grid-cols-[1.35fr_0.95fr]"><section className="space-y-6"><div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-zinc-500">요약</p><p className="mt-3 text-sm leading-7 text-zinc-200">{message}</p><div className="mt-5 grid gap-3 sm:grid-cols-4"><SummaryTile label="딜러 합계" value={dealerTotal === null ? '-' : String(dealerTotal)} color="text-white" /><SummaryTile label="총 베팅" value={money(roundWager)} color="text-amber-300" /><SummaryTile label="정산 금액" value={money(roundPayout)} color="text-emerald-300" /><SummaryTile label="순손익" value={signedMoney(roundNet)} color={roundNet >= 0 ? 'text-emerald-300' : 'text-rose-300'} /></div></div><div className="grid gap-4 md:grid-cols-2">{hands.map((hand, index) => <div key={hand.id} className="rounded-[1.5rem] border border-white/10 bg-black/20 p-5"><div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">손패 {index + 1}</p><p className="mt-2 text-xl font-black text-white">{summarizeHand(hand.cards).total}</p></div><div className="text-right"><p className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">결과</p><p className="mt-2 text-base font-black text-white">{formatResult(hand.result)}</p></div></div><div className="mt-4 grid gap-2 text-sm text-zinc-300"><InlineStat label="베팅" value={money(hand.bet)} /><InlineStat label="카드 수" value={String(hand.cards.length)} /><InlineStat label="상태" value={`${hand.busted ? '버스트 ' : ''}${hand.blackjack ? '블랙잭 ' : ''}${hand.doubled ? '더블 ' : ''}${hand.isSplitAces ? 'A 분할' : ''}`.trim() || '일반'} /></div></div>)}</div></section><aside className="space-y-6"><div className="rounded-[1.5rem] border border-emerald-400/20 bg-emerald-500/8 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-emerald-300">라운드 결과 분포</p><div className="mt-4 space-y-3"><ProgressRow label="승리" count={roundResults.wins} color="bg-emerald-400" total={Math.max(hands.length, 1)} /><ProgressRow label="패배" count={roundResults.losses} color="bg-rose-400" total={Math.max(hands.length, 1)} /><ProgressRow label="무승부" count={roundResults.pushes} color="bg-zinc-300" total={Math.max(hands.length, 1)} /><ProgressRow label="블랙잭" count={roundResults.blackjacks} color="bg-amber-300" total={Math.max(hands.length, 1)} /></div></div><div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-zinc-500">세션 누적</p><div className="mt-4 space-y-3"><InlineStat label="총 라운드" value={String(stats.rounds)} /><InlineStat label="총 승리" value={String(stats.wins)} /><InlineStat label="총 패배" value={String(stats.losses)} /><InlineStat label="총 무승부" value={String(stats.pushes)} /><InlineStat label="총 블랙잭" value={String(stats.blackjacks)} /><InlineStat label="승률" value={percent(winRate)} /><InlineStat label="현재 보유금" value={money(bankroll)} /></div></div><div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-5"><p className="text-[11px] font-bold uppercase tracking-[0.32em] text-zinc-500">해석 포인트</p><ul className="mt-4 space-y-3 text-sm leading-6 text-zinc-300"><li>이번 판의 총 베팅과 정산 금액 차이로 기대값 개념을 바로 볼 수 있습니다.</li><li>승패 분포와 세션 승률을 비교하면 표본 수가 늘수록 결과가 어떻게 안정되는지 관찰할 수 있습니다.</li><li>블랙잭과 일반 승리의 배당 차이도 함께 비교할 수 있습니다.</li></ul></div></aside></div></div></div>; }
 function HistoryOverlay({entries, onClose}: {entries: HistoryEntry[]; onClose: () => void}) { return <div className="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"><div className="mx-auto flex h-full max-w-3xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#07110d]/95 shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 px-6 py-4"><div><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">기록 보기</p><h2 className="mt-1 text-2xl font-black text-white">최근 라운드 기록</h2></div><button type="button" onClick={onClose} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">닫기</button></div><div className="flex-1 space-y-3 overflow-auto p-6">{entries.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-zinc-400">아직 기록이 없습니다.</div> : entries.map((entry) => <div key={entry.id} className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center justify-between gap-3"><div><p className="text-[11px] font-bold uppercase tracking-[0.28em] text-zinc-500">라운드 #{entry.roundNumber}</p><p className="mt-1 text-lg font-black text-white">{entry.headline}</p></div><div className="text-right"><p className="font-mono text-sm font-bold text-white">{signedMoney(entry.delta)}</p><p className="mt-1 text-xs text-zinc-500">{entry.timestamp}</p></div></div><p className="mt-3 text-sm leading-6 text-zinc-300">{entry.message}</p><div className="mt-3 flex items-center justify-between text-sm"><span className="text-zinc-500">종료 후 보유금</span><span className="font-mono text-amber-300">{money(entry.bankroll)}</span></div></div>)}</div></div></div>; }
-function SettingsOverlay({settings, onClose, onChange}: {settings: UISettings; onClose: () => void; onChange: Dispatch<SetStateAction<UISettings>>}) { return <div className="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"><div className="mx-auto flex h-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#07110d]/95 shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 px-6 py-4"><div><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">설정</p><h2 className="mt-1 text-2xl font-black text-white">테이블 옵션</h2></div><button type="button" onClick={onClose} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">닫기</button></div><div className="flex-1 space-y-4 overflow-auto p-6"><ToggleRow label="기본 전략 보기" desc="오른쪽 패널의 기본 전략 카드 표시를 켜고 끕니다." checked={settings.showBasicStrategy} onToggle={() => onChange((current) => ({...current, showBasicStrategy: !current.showBasicStrategy}))} /><ToggleRow label="파산 팝업" desc="보유금이 0원이 되면 파산 알림을 표시합니다." checked={settings.bankruptcyAlert} onToggle={() => onChange((current) => ({...current, bankruptcyAlert: !current.bankruptcyAlert}))} /><ToggleRow label="조기 종료 확인" desc="조기 종료 전에 한 번 더 확인합니다." checked={settings.confirmEarlyExit} onToggle={() => onChange((current) => ({...current, confirmEarlyExit: !current.confirmEarlyExit}))} /></div></div></div>; }
+function ControlDock({table, activeHand, compact, onAddChip, onResetBet, onHit, onStand, onDouble, onSplit, onEarlyExit, onStartRound}: {table: TableState; activeHand: Hand | null; compact: boolean; onAddChip: (chip: number) => void; onResetBet: () => void; onHit: () => void; onStand: () => void; onDouble: () => void; onSplit: () => void; onEarlyExit: () => void; onStartRound: () => void}) {
+  const canUseDouble = !!activeHand && table.phase !== 'betting' && canDouble(activeHand, table.phase) && table.bankroll >= activeHand.bet;
+  const canUseSplit = !!activeHand && table.phase !== 'betting' && canSplit(activeHand, table.phase, table.playerHands.length) && table.bankroll >= activeHand.bet;
+  return <div className={`flex flex-col gap-4 ${compact ? 'xl:sticky xl:top-24' : ''}`}>
+    <div className="rounded-[1.75rem] border border-white/8 bg-black/20 p-5">
+      <div className="flex flex-col gap-4">
+        <div><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-zinc-500">베팅 칩</p><p className="mt-2 text-sm text-zinc-300">100, 200, 300, 500 칩을 여러 번 눌러 누적 베팅할 수 있습니다.</p></div>
+        <div className="flex flex-wrap gap-3">{CHIP_VALUES.map((chip) => <ChipButton key={chip} label={money(chip)} onClick={() => onAddChip(chip)} disabled={table.phase !== 'betting' || table.pendingBet + chip > table.bankroll} />)}<ChipButton label="초기화" onClick={onResetBet} disabled={table.phase !== 'betting' || table.pendingBet === 0} subtle /></div>
+      </div>
+    </div>
+    <div className={`grid gap-3 ${compact ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-4'}`}>
+      <ActionButton label="히트" sub="카드 추가" onClick={onHit} disabled={table.phase !== 'player'} />
+      <ActionButton label="스탠드" sub="턴 종료" onClick={onStand} disabled={table.phase !== 'player'} />
+      <ActionButton label="더블" sub="베팅 2배" onClick={onDouble} disabled={!canUseDouble} />
+      <ActionButton label="스플릿" sub={canUseSplit ? '가능' : '불가'} onClick={onSplit} disabled={!canUseSplit} />
+    </div>
+    <button type="button" onClick={onEarlyExit} disabled={table.phase === 'round-over'} className={`rounded-2xl px-8 py-3 text-sm font-black tracking-[0.24em] transition ${table.phase !== 'round-over' ? 'border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20' : 'cursor-not-allowed bg-white/10 text-zinc-500'}`}>조기 종료하기</button>
+    <button type="button" onClick={onStartRound} disabled={table.phase !== 'betting' || table.pendingBet === 0} className={`rounded-2xl px-12 py-4 text-sm font-black uppercase tracking-[0.35em] transition active:scale-[0.98] ${table.phase === 'betting' && table.pendingBet > 0 ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'cursor-not-allowed bg-white/10 text-zinc-500'}`}>새 라운드</button>
+  </div>;
+}
+function SettingsOverlay({settings, onClose, onChange}: {settings: UISettings; onClose: () => void; onChange: Dispatch<SetStateAction<UISettings>>}) { return <div className="fixed inset-0 z-[80] bg-black/70 p-4 backdrop-blur-md"><div className="mx-auto flex h-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#07110d]/95 shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 px-6 py-4"><div><p className="text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-300">설정</p><h2 className="mt-1 text-2xl font-black text-white">테이블 옵션</h2></div><button type="button" onClick={onClose} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black tracking-[0.18em] text-white transition hover:bg-white/10">닫기</button></div><div className="flex-1 space-y-4 overflow-auto p-6"><ToggleRow label="기본 전략 보기" desc="오른쪽 패널의 기본 전략 카드 표시를 켜고 끕니다." checked={settings.showBasicStrategy} onToggle={() => onChange((current) => ({...current, showBasicStrategy: !current.showBasicStrategy}))} /><ToggleRow label="가로 모드 왼쪽 조작" desc="가로 비율이 긴 화면에서는 베팅과 액션 버튼을 게임판 왼쪽에 배치합니다." checked={settings.landscapeControlsLeft} onToggle={() => onChange((current) => ({...current, landscapeControlsLeft: !current.landscapeControlsLeft}))} /><ToggleRow label="파산 팝업" desc="보유금이 0원이 되면 파산 알림을 표시합니다." checked={settings.bankruptcyAlert} onToggle={() => onChange((current) => ({...current, bankruptcyAlert: !current.bankruptcyAlert}))} /><ToggleRow label="조기 종료 확인" desc="조기 종료 전에 한 번 더 확인합니다." checked={settings.confirmEarlyExit} onToggle={() => onChange((current) => ({...current, confirmEarlyExit: !current.confirmEarlyExit}))} /></div></div></div>; }
 function HandPanel({hand, index, active, multi}: {key?: string; hand: Hand; index: number; active: boolean; multi: boolean}) { const summary = summarizeHand(hand.cards); return <div className={`rounded-[1.4rem] border p-4 ${active ? 'border-emerald-400/30 bg-black/20' : 'border-white/8 bg-black/10'}`}><div className="mb-3 flex items-center justify-between gap-3"><Badge icon={<User className="h-3 w-3" />} label={multi ? `손패 ${index + 1}` : '플레이어'} value={String(summary.total)} tone="emerald" /><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-500">베팅 {money(hand.bet)}</p><p className="mt-1 text-[11px] font-bold uppercase tracking-[0.25em] text-zinc-400">{formatResult(hand.result)}</p></div></div><div className="flex flex-wrap gap-3">{hand.cards.map((card, cardIndex) => <TableCard key={card.id} card={card} delay={0.12 + cardIndex * 0.08} />)}</div><div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-zinc-400">{active ? <Chip label="현재 턴" active /> : null}{hand.doubled ? <Chip label="더블" /> : null}{hand.blackjack ? <Chip label="블랙잭" /> : null}{hand.busted ? <Chip label="버스트" /> : null}{hand.isSplitAces ? <Chip label="A 분할" /> : null}</div></div>; }
 function SummaryTile({label, value, color}: {label: string; value: string; color: string}) { return <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><p className="text-[10px] font-bold uppercase tracking-[0.28em] text-zinc-500">{label}</p><p className={`mt-2 text-lg font-black ${color}`}>{value}</p></div>; }
 function InlineStat({label, value}: {label: string; value: string}) { return <div className="flex items-center justify-between gap-3"><span className="text-zinc-500">{label}</span><span className="font-mono text-white">{value}</span></div>; }
